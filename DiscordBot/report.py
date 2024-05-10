@@ -18,7 +18,7 @@ class Report:
     START_KEYWORD = "report"
     CANCEL_KEYWORD = "cancel"
     HELP_KEYWORD = "help"
-    BLOCK_USER_MESSAGE = "Would you like to block the user from messaging you or viewing your profile in the future? (y/n)"
+    BLOCK_USER_MESSAGE = "Would you like to block the user from messaging you or viewing your profile in the future? (yes/no)"
     NO_ADDITIONAL_INFO = "If no additional information can be provided, reply with N/A."
 
     def __init__(self, client):
@@ -159,13 +159,13 @@ class Report:
             # Here we've found the message - it's up to you to decide what to do next!
             self.state = State.MESSAGE_IDENTIFIED
             self.message = message
-            return [{"response": "I found this message:"},
+            return [{"response": "I found this message:", "reported_message": message},
                     {"response": "```" + message.author.name + ": " + message.content + "```"},
                     {"response": "\n\nPlease select the reason for reporting this message.", "view": self.get_report_view()}]
         
         if self.state == State.AWAITING_BLOCK_CONSENT:
             report_summary = self.construct_report_summary(message)
-            if message.content == 'y':
+            if message.content == 'yes':
                 self.state = State.REPORT_COMPLETE
                 response = f"{self.message.author.name} is no longer able to directly message you or view your profile."
             else:

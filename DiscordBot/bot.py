@@ -27,23 +27,29 @@ with open(token_path) as f:
     discord_token = tokens['discord']
     
 class ModeratorActionDropdown(Select):
-    def __init__(self, mod_channel):
+    def __init__(self, mod_channel, reported_message):
         super().__init__(placeholder="What actions do you want to take?", min_values=1, max_values=1)
         self.mod_channel = mod_channel
+        self.reported_message = reported_message
         self.add_option(label="Ban User", description="Ban the actor from the server", value="Actor has been banned")
         self.add_option(label="Remove Post", description="Remove the post from the channel", value="Post has been removed")
         self.add_option(label="Report User to Discord", description="Report the User to Discord", value="Actor has been reported to Discord")
         self.add_option(label="Place User on Probation", description="Place the actor on temporary probation", value="Actor has been placed on temporary probation")
 
     async def callback(self, interaction):
+        if self.values[0] == "Actor has been banned":
+            await self.reported_message.author.send("You have been banned from the Trust and Safety - Spring 2024 server.")
+        elif self.values[0] == "Actor has been placed on temporary probation":
+            await self.reported_message.author.send("Your account has been put on temporary probabtion and will have limited access to features due to policy violations.")
         action_status = f'Action taken: {self.values[0]}. Thank you for moderating this report!'
         await self.mod_channel.send(action_status)
         await interaction.response.defer()
     
 class LegitimacyDropdown(Select):
-    def __init__(self, mod_channel):
+    def __init__(self, mod_channel, reported_message):
         super().__init__(placeholder="Is this report legitimate?", min_values=1, max_values=1)
         self.mod_channel = mod_channel
+        self.reported_message = reported_message
         self.add_option(label="Yes", description="This report is legitimate", value="legitimate")
         self.add_option(label="No", description="This report is not legitimate", value="not_legitimate")
 
@@ -52,13 +58,13 @@ class LegitimacyDropdown(Select):
         report_status = f'Report legitimacy marked as: {self.values[0]}'
         if self.values[0] == "legitimate":
             view = View()
-            view.add_item(ReportReasonDropdown(self.mod_channel))
+            view.add_item(ReportReasonDropdown(self.mod_channel, self.reported_message))
             await self.mod_channel.send(content=f"{report_status}\nPlease verify the reason for reporting:", view=view)
         else:
             await self.mod_channel.send(report_status)
 
 class ReportReasonDropdown(Select):
-    def __init__(self, mod_channel):
+    def __init__(self, mod_channel, reported_message):
         options = [
             SelectOption(emoji="📫", label='Blackmail', value='Blackmail', description="You are being threatened to send cryptocurrency"),
             SelectOption(emoji="💰", label='Investment Scam', value='Investment Scam', description="You sent cryptocurrency to a fraudulent individual"),
@@ -68,6 +74,7 @@ class ReportReasonDropdown(Select):
         ]
         super().__init__(placeholder='Verify the reason for reporting', min_values=1, max_values=1, options=options)
         self.mod_channel = mod_channel
+        self.reported_message = reported_message
 
     async def callback(self, interaction):
         report_status = f'Report reason verified as: {self.values[0]}'
@@ -79,22 +86,23 @@ class ReportReasonDropdown(Select):
             await interaction.client.wait_for_user_reply(self.mod_channel, interaction.user)
         
         action_view = View()
-        action_view.add_item(ModeratorActionDropdown(self.mod_channel))
+        action_view.add_item(ModeratorActionDropdown(self.mod_channel, self.reported_message))
         await self.mod_channel.send("Select the action you want to take:", view=action_view)
 
-def create_legitimacy_view(mod_channel):
+def create_legitimacy_view(mod_channel, reported_message):
     view = View()
-    view.add_item(LegitimacyDropdown(mod_channel))
+    view.add_item(LegitimacyDropdown(mod_channel, reported_message))
     return view
 
 class ModBot(discord.Client):
-    def __init__(self): 
+    def __init__(self):
         intents = discord.Intents.default()
         intents.message_content = True
         super().__init__(command_prefix='.', intents=intents)
         self.group_num = None
         self.mod_channels = {} # Map from guild to the mod channel id for that guild
         self.reports = {} # Map from user IDs to the state of their report
+        self.reported_message = None
 
     async def on_ready(self):
         print(f'{self.user.name} has connected to Discord! It is these guilds:')
@@ -162,8 +170,9 @@ class ModBot(discord.Client):
         for r in responses:
             await message.channel.send(r.get("response"), view=r.get("view"))
             if r.get("summary"):
+                self.reported_message = r.get("reported_message")
                 mod_channel = self.mod_channels[r.get("reported_message").guild.id]
-                view = create_legitimacy_view(mod_channel)
+                view = create_legitimacy_view(mod_channel, self.reported_message)
                 await mod_channel.send(r.get("summary"), view=view)
 
 
