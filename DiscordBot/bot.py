@@ -87,11 +87,6 @@ def create_legitimacy_view(mod_channel):
     view.add_item(LegitimacyDropdown(mod_channel))
     return view
 
-def create_report_reason_view(mod_channel):
-    view = View()
-    view.add_item(ReportReasonDropdown(mod_channel))
-    return view
-
 class ModBot(discord.Client):
     def __init__(self): 
         intents = discord.Intents.default()
