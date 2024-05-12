@@ -12,6 +12,7 @@ class State(Enum):
     REPORT_COMPLETE = auto()
     AWAITING_BLOCK_CONSENT = auto()
     AWAITING_ADDITIONAL_INFO = auto()
+    AWAITING_PHYSICAL_HARM = auto()
 
 
 class Report:
@@ -26,7 +27,7 @@ class Report:
         self.client = client
         self.message = None
         self.report_reason = None
-        self.additional_info = None
+        self.additional_info = ""
         self.selections = []
 
     def get_report_view(self):
@@ -107,8 +108,12 @@ class Report:
 
         async def callback(interaction):
             self.selections = dropdown.values
-            self.state = State.AWAITING_ADDITIONAL_INFO
-            await interaction.response.send_message(f"[Optional] Please provide additional details. {Report.NO_ADDITIONAL_INFO}")
+            if "Threat to do Physical Harm" in self.selections:
+                self.state = State.AWAITING_PHYSICAL_HARM
+                await interaction.response.send_message(f"Are you in imminent danger? (yes/no)")
+            else:
+                self.state = State.AWAITING_ADDITIONAL_INFO
+                await interaction.response.send_message(f"[Optional] Please provide additional details. {Report.NO_ADDITIONAL_INFO}")
 
         dropdown.callback = callback
         view = View()
@@ -116,7 +121,7 @@ class Report:
         return view
 
     def construct_report_summary(self, message):
-        additional_information = f"\n* Additional Information: {self.additional_info}" if self.additional_info else ""
+        additional_information = f"\n* Additional Information: {self.additional_info}" if len(self.additional_info) > 0 else ""
         reason_sub_category = f" - {', '.join(self.selections)}" if len(self.selections) > 0 else ""
         date = datetime.today().strftime("%B %d, %Y")
         return f"A report was filed on {date} by {message.author.name} on the following message: \n```{self.message.author.name}: {self.message.content}```\n* Report reason: {self.report_reason}{reason_sub_category}{additional_information} "
@@ -162,7 +167,15 @@ class Report:
             return [{"response": "I found this message:", "reported_message": message},
                     {"response": "```" + message.author.name + ": " + message.content + "```"},
                     {"response": "\n\nPlease select the reason for reporting this message.", "view": self.get_report_view()}]
-        
+
+        if self.state == State.AWAITING_PHYSICAL_HARM:
+            self.state = State.AWAITING_ADDITIONAL_INFO
+            if message.content == 'yes':
+                self.additional_info += "User is in imminent danger.\n"
+                return [{"response": f"**If you are in a life-threatening situation, please contact your local authorities.**\n\n[Optional] Please provide additional details that might help our investigation. {Report.NO_ADDITIONAL_INFO}"}]
+            else:
+                return [{"response": f"[Optional] Please provide additional details. {Report.NO_ADDITIONAL_INFO}"}]
+
         if self.state == State.AWAITING_BLOCK_CONSENT:
             report_summary = self.construct_report_summary(message)
             if message.content == 'yes':
@@ -171,12 +184,12 @@ class Report:
             else:
                 self.state = State.REPORT_COMPLETE
                 response = f"{self.message.author.name} will still be able to directly message you and view your profile."
-
+            self.additional_info = ""
             return [{
                         "response": response, "summary": report_summary, "reported_message": self.message}]
 
         if self.state == State.AWAITING_ADDITIONAL_INFO:
-            self.additional_info = message.content if message.content != 'N/A' else None
+            self.additional_info += message.content if message.content != 'N/A' else ""
             if self.report_reason == 'Suspicious Link':
                 response = "Thank you for reporting. Our content moderation team will review the link and flag it if necessary."
             elif self.report_reason == 'Blackmail' or self.report_reason == "Investment Scam":
