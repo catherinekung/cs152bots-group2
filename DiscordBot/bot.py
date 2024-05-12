@@ -28,7 +28,7 @@ with open(token_path) as f:
     
 class ModeratorActionDropdown(Select):
     def __init__(self, mod_channel, reported_message):
-        super().__init__(placeholder="What actions do you want to take?", min_values=1, max_values=1)
+        super().__init__(placeholder="What actions do you want to take?", min_values=1, max_values=4)
         self.mod_channel = mod_channel
         self.reported_message = reported_message
         self.add_option(label="Ban User", description="Ban the actor from the server", value="Actor has been banned")
@@ -37,11 +37,11 @@ class ModeratorActionDropdown(Select):
         self.add_option(label="Place User on Probation", description="Place the actor on temporary probation", value="Actor has been placed on temporary probation")
 
     async def callback(self, interaction):
-        if self.values[0] == "Actor has been banned":
+        if "Actor has been banned" in self.values:
             await self.reported_message.author.send("You have been banned from the Trust and Safety - Spring 2024 server.")
-        elif self.values[0] == "Actor has been placed on temporary probation":
+        elif  "Actor has been placed on temporary probation" in self.values[0]:
             await self.reported_message.author.send("Your account has been put on temporary probabtion and will have limited access to features due to policy violations.")
-        action_status = f'Action taken: {self.values[0]}. Thank you for moderating this report!'
+        action_status = f'Actions taken: {", ".join(self.values)}. Thank you for moderating this report!'
         await self.mod_channel.send(action_status)
         await interaction.response.defer()
     
