@@ -3,12 +3,12 @@ from discord.ext import commands
 import os
 import json
 import logging
-import re
-import requests
 from report import Report
-import pdb
 from discord.components import SelectOption
 from discord.ui import Select, View
+from datetime import datetime
+import re
+from suspicious_link_detection import identify_suspicious_links
 
 # Set up logging to the console
 logger = logging.getLogger('discord')
@@ -25,6 +25,7 @@ with open(token_path) as f:
     # If you get an error here, it means your token is formatted incorrectly. Did you put it in quotes?
     tokens = json.load(f)
     discord_token = tokens['discord']
+    virus_total_token = tokens['virus_total']
     
 class ModeratorActionDropdown(Select):
     def __init__(self, mod_channel, reported_message):
@@ -39,7 +40,7 @@ class ModeratorActionDropdown(Select):
     async def callback(self, interaction):
         if "Actor has been banned" in self.values:
             await self.reported_message.author.send("You have been banned from the Trust and Safety - Spring 2024 server.")
-        elif  "Actor has been placed on temporary probation" in self.values[0]:
+        elif "Actor has been placed on temporary probation" in self.values[0]:
             await self.reported_message.author.send("Your account has been put on temporary probabtion and will have limited access to features due to policy violations.")
         action_status = f'Actions taken: {", ".join(self.values)}. Thank you for moderating this report!'
         await self.mod_channel.send(action_status)
@@ -187,26 +188,46 @@ class ModBot(discord.Client):
 
         # Forward the message to the mod channel
         mod_channel = self.mod_channels[message.guild.id]
-        await mod_channel.send(f'Forwarded message:\n{message.author.name}: "{message.content}"')
         scores = self.eval_text(message.content)
-        await mod_channel.send(self.code_format(scores))
+        if scores:
+            await mod_channel.send(self.code_format(scores, message))
 
-    
     def eval_text(self, message):
         ''''
         TODO: Once you know how you want to evaluate messages in your channel, 
         insert your code here! This will primarily be used in Milestone 3. 
         '''
-        return message
+
+        all_scores = {}
+        # Automated flagging for suspicious links
+        scores = identify_suspicious_links(message.content)
+        if len(scores) > 0:
+            if -1 in scores.values() or 1 in scores.values():
+                all_scores['suspicious_link'] = scores
+
+        # Add other automated scores
+        return all_scores
 
     
-    def code_format(self, text):
+    def code_format(self, scores, message):
         ''''
         TODO: Once you know how you want to show that a message has been 
         evaluated, insert your code here for formatting the string to be 
         shown in the mod channel. 
         '''
-        return "Evaluated: '" + text+ "'"
+        '''
+        -1: further inspection by moderator required
+        1: automated report created, no action required by moderators
+        0: report was false, no need to do anything, nothing is sent to moderator channel
+        '''
+        date = datetime.today().strftime("%B %d, %Y")
+        if 'suspicious_link' in scores:
+            urls_requiring_manual_review = [url for url in scores if scores[url] == -1]
+            if len(urls_requiring_manual_review) > 0:
+                return f"An automated report was filed on {date} on the following message: \n```{message.author.name}: {message.content}```\n* Report reason: Suspicious Link\n* Additional Information: The following links require manual review={','.join(urls_requiring_manual_review)}."
+            else:
+                urls_auto_flagged = [url for url in scores if scores[url] == 1]
+                return f"An automated report was filed on {date} on the following message: \n```{message.author.name}: {message.content}```\n* Report reason: Suspicious Link\n* Additional Information: The following links were identified as suspicious={','.join(urls_auto_flagged)}.\nNo further action is required at this time."
 
 client = ModBot()
 client.run(discord_token)
