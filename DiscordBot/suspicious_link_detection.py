@@ -1,7 +1,7 @@
 import requests
 import re
 
-internal_blacklist = ["https://scam.com"]
+internal_blacklist = ["https://in-internal-list-spam.com"]
 
 
 def check_with_virus_total(url, virus_total_token):
@@ -33,13 +33,10 @@ def get_url_variations(url):
 
 
 def identify_suspicious_links(message, virus_total_token):
-    # 1 = automated report created, no action needed from moderators
-    # 0 = no report required
-    # -1 = automated report created, action needed from moderators
-
     url_pattern = re.compile(
         r'\b((http|https)://)?(www\.)?([a-zA-Z0-9-]+(\.[a-zA-Z]{2,})+)(/[a-zA-Z0-9@:%_\+.~#?&//=,-]*)?\b')
-    urls = url_pattern.findall(message)
+    matches = url_pattern.finditer(message)
+    urls = [match.group(0) for match in matches]
     actions_per_url = {}
     if len(urls) > 0:
         for url in urls:
@@ -65,11 +62,10 @@ def identify_suspicious_links(message, virus_total_token):
                             suspicious += stats.get("suspicious")
                             num_vendors += total
             if num_vendors == 0:
-                actions_per_url[url] = -1
+                if url not in actions_per_url:
+                    actions_per_url[url] = -1
             elif suspicious/num_vendors > 0.5:
                 actions_per_url[url] = -1
             else:
                 actions_per_url[url] = 0
     return actions_per_url
-
-
