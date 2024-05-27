@@ -1,3 +1,5 @@
+import asyncio
+
 import discord
 from discord.ext import commands
 import os
@@ -5,6 +7,8 @@ import json
 import logging
 import re
 import requests
+
+from user_rules import UserRules
 from report import Report
 import pdb
 from discord.components import SelectOption
@@ -25,26 +29,33 @@ with open(token_path) as f:
     # If you get an error here, it means your token is formatted incorrectly. Did you put it in quotes?
     tokens = json.load(f)
     discord_token = tokens['discord']
-    
+
+
 class ModeratorActionDropdown(Select):
     def __init__(self, mod_channel, reported_message):
         super().__init__(placeholder="What actions do you want to take?", min_values=1, max_values=4)
         self.mod_channel = mod_channel
         self.reported_message = reported_message
         self.add_option(label="Ban User", description="Ban the actor from the server", value="Actor has been banned")
-        self.add_option(label="Remove Post", description="Remove the post from the channel", value="Post has been removed")
-        self.add_option(label="Report User to Discord", description="Report the User to Discord", value="Actor has been reported to Discord")
-        self.add_option(label="Place User on Probation", description="Place the actor on temporary probation", value="Actor has been placed on temporary probation")
+        self.add_option(label="Remove Post", description="Remove the post from the channel",
+                        value="Post has been removed")
+        self.add_option(label="Report User to Discord", description="Report the User to Discord",
+                        value="Actor has been reported to Discord")
+        self.add_option(label="Place User on Probation", description="Place the actor on temporary probation",
+                        value="Actor has been placed on temporary probation")
 
     async def callback(self, interaction):
         if "Actor has been banned" in self.values:
-            await self.reported_message.author.send("You have been banned from the Trust and Safety - Spring 2024 server.")
-        elif  "Actor has been placed on temporary probation" in self.values[0]:
-            await self.reported_message.author.send("Your account has been put on temporary probabtion and will have limited access to features due to policy violations.")
+            await self.reported_message.author.send(
+                "You have been banned from the Trust and Safety - Spring 2024 server.")
+        elif "Actor has been placed on temporary probation" in self.values[0]:
+            await self.reported_message.author.send(
+                "Your account has been put on temporary probabtion and will have limited access to features due to policy violations.")
         action_status = f'Actions taken: {", ".join(self.values)}. Thank you for moderating this report!'
         await self.mod_channel.send(action_status)
         await interaction.response.defer()
-    
+
+
 class LegitimacyDropdown(Select):
     def __init__(self, mod_channel, reported_message):
         super().__init__(placeholder="Is this report legitimate?", min_values=1, max_values=1)
@@ -63,14 +74,20 @@ class LegitimacyDropdown(Select):
         else:
             await self.mod_channel.send(report_status)
 
+
 class ReportReasonDropdown(Select):
     def __init__(self, mod_channel, reported_message):
         options = [
-            SelectOption(emoji="📫", label='Blackmail', value='Blackmail', description="You are being threatened to send cryptocurrency"),
-            SelectOption(emoji="💰", label='Investment Scam', value='Investment Scam', description="You sent cryptocurrency to a fraudulent individual"),
-            SelectOption(emoji="🔗", label='Suspicious Link', value='Suspicious Link', description="You received a link that may lead to a disreputable site"),
-            SelectOption(emoji="⚠️", label="Imminent Danger", value="Imminent Danger", description="You are in immediate danger"),
-            SelectOption(emoji="❓", label="Other", value="Other", description="You have a different reason for reporting")
+            SelectOption(emoji="📫", label='Blackmail', value='Blackmail',
+                         description="You are being threatened to send cryptocurrency"),
+            SelectOption(emoji="💰", label='Investment Scam', value='Investment Scam',
+                         description="You sent cryptocurrency to a fraudulent individual"),
+            SelectOption(emoji="🔗", label='Suspicious Link', value='Suspicious Link',
+                         description="You received a link that may lead to a disreputable site"),
+            SelectOption(emoji="⚠️", label="Imminent Danger", value="Imminent Danger",
+                         description="You are in immediate danger"),
+            SelectOption(emoji="❓", label="Other", value="Other",
+                         description="You have a different reason for reporting")
         ]
         super().__init__(placeholder='Verify the reason for reporting', min_values=1, max_values=1, options=options)
         self.mod_channel = mod_channel
@@ -84,15 +101,17 @@ class ReportReasonDropdown(Select):
             prompt_message = "Please type a message that can be sent to the authorities regarding this case."
             await self.mod_channel.send(prompt_message)
             await interaction.client.wait_for_user_reply(self.mod_channel, interaction.user)
-        
+
         action_view = View()
         action_view.add_item(ModeratorActionDropdown(self.mod_channel, self.reported_message))
         await self.mod_channel.send("Select the action you want to take:", view=action_view)
+
 
 def create_legitimacy_view(mod_channel, reported_message):
     view = View()
     view.add_item(LegitimacyDropdown(mod_channel, reported_message))
     return view
+
 
 class ModBot(discord.Client):
     def __init__(self):
@@ -100,8 +119,9 @@ class ModBot(discord.Client):
         intents.message_content = True
         super().__init__(command_prefix='.', intents=intents)
         self.group_num = None
-        self.mod_channels = {} # Map from guild to the mod channel id for that guild
-        self.reports = {} # Map from user IDs to the state of their report
+        self.mod_channels = {}  # Map from guild to the mod channel id for that guild
+        self.reports = {}  # Map from user IDs to the state of their report
+        self.user_rules = UserRules(self)
         self.reported_message = None
 
     async def on_ready(self):
@@ -121,14 +141,15 @@ class ModBot(discord.Client):
             for channel in guild.text_channels:
                 if channel.name == f'group-{self.group_num}-mod':
                     self.mod_channels[guild.id] = channel
-                    
+
     async def wait_for_user_reply(self, channel, user):
         def check(m):
             return m.author == user and m.channel == channel
 
         try:
             message = await self.wait_for('message', check=check, timeout=300)
-            await channel.send(f"Thank you for your response, {user.name}. A report has been filed with the authorities. Please wait for further instructions.")
+            await channel.send(
+                f"Thank you for your response, {user.name}. A report has been filed with the authorities. Please wait for further instructions.")
         except asyncio.TimeoutError:
             await channel.send("You did not respond in time.")
 
@@ -149,7 +170,8 @@ class ModBot(discord.Client):
     async def handle_dm(self, message):
         # Handle a help message
         if message.content == Report.HELP_KEYWORD:
-            reply =  "Use the `report` command to begin the reporting process.\n"
+            reply = "Use the `report` command to begin the reporting process.\n"
+            reply += "User the `rules` command to begin the rule creation process.\n"
             reply += "Use the `cancel` command to cancel the report process.\n"
             await message.channel.send(reply)
             return
@@ -157,28 +179,39 @@ class ModBot(discord.Client):
         author_id = message.author.id
         responses = []
 
+        reporting = (author_id in self.reports
+                     or message.content.startswith(Report.START_KEYWORD))
+        creating_rules = (not self.user_rules.rules_complete()
+                          or message.content.startswith(UserRules.START_KEYWORD))
+
         # Only respond to messages if they're part of a reporting flow
-        if author_id not in self.reports and not message.content.startswith(Report.START_KEYWORD):
+        if not reporting and not creating_rules:
             return
 
-        # If we don't currently have an active report for this user, add one
-        if author_id not in self.reports:
-            self.reports[author_id] = Report(self)
+        if reporting:
+            # If we don't currently have an active report for this user, add one
+            if author_id not in self.reports:
+                self.reports[author_id] = Report(self)
 
-        # Let the report class handle this message; forward all the messages it returns to uss
-        responses = await self.reports[author_id].handle_message(message)
-        for r in responses:
-            await message.channel.send(r.get("response"), view=r.get("view"))
-            if r.get("summary"):
-                self.reported_message = r.get("reported_message")
-                mod_channel = self.mod_channels[r.get("reported_message").guild.id]
-                view = create_legitimacy_view(mod_channel, self.reported_message)
-                await mod_channel.send(r.get("summary"), view=view)
+            # Let the report class handle this message; forward all the messages it returns to uss
+            responses = await self.reports[author_id].handle_message(message)
+            for r in responses:
+                await message.channel.send(r.get("response"), view=r.get("view"))
+                if r.get("summary"):
+                    self.reported_message = r.get("reported_message")
+                    mod_channel = self.mod_channels[r.get("reported_message").guild.id]
+                    view = create_legitimacy_view(mod_channel, self.reported_message)
+                    await mod_channel.send(r.get("summary"), view=view)
 
+            # If the report is complete or cancelled, remove it from our map
+            if self.reports[author_id].report_complete():
+                self.reports.pop(author_id)
 
-        # If the report is complete or cancelled, remove it from our map
-        if self.reports[author_id].report_complete():
-            self.reports.pop(author_id)
+        elif creating_rules:
+            self.user_rules.update_rules(user=author_id)
+            responses = await self.user_rules.handle_message(message)
+            for r in responses:
+                await message.channel.send(r.get("response"), view=r.get("view"))
 
     async def handle_channel_message(self, message):
         # Only handle messages sent in the "group-#" channel
@@ -191,7 +224,6 @@ class ModBot(discord.Client):
         scores = self.eval_text(message.content)
         await mod_channel.send(self.code_format(scores))
 
-    
     def eval_text(self, message):
         ''''
         TODO: Once you know how you want to evaluate messages in your channel, 
@@ -199,14 +231,14 @@ class ModBot(discord.Client):
         '''
         return message
 
-    
     def code_format(self, text):
         ''''
         TODO: Once you know how you want to show that a message has been 
         evaluated, insert your code here for formatting the string to be 
         shown in the mod channel. 
         '''
-        return "Evaluated: '" + text+ "'"
+        return "Evaluated: '" + text + "'"
+
 
 client = ModBot()
 client.run(discord_token)
