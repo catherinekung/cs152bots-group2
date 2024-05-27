@@ -1,3 +1,4 @@
+import re
 from enum import Enum, auto
 import json
 
@@ -185,7 +186,21 @@ class UserRules:
         if self.state == State.RULES_SET:
             self.state = State.RULES_START
 
+    def get_rules_scores(self, message: str) -> dict:
+        # Create a regex pattern that matches any of the phrases
+        pattern = '|'.join(re.escape(phrase) for phrase in self.flags)
+        # Search for the pattern in the sentence
+        matches = re.findall(pattern, message, re.IGNORECASE)
+        if matches:
+            return {"rules": matches}
+        return {}
+
 
 if __name__ == "__main__":
     bot = UserRules("hi")
-    print('h')
+    print(f'{bot.get_rules_scores("Im going to get you") = }')
+    print(f'{bot.get_rules_scores("Youre a good guy") = }')
+    print(f'{bot.get_rules_scores("You cash now have your money") = }')
+    print(f'{bot.get_rules_scores("money") = }')
+    print(f'{bot.get_rules_scores("I love me some cash") = }')
+    print(f'{bot.get_rules_scores("I love me some crypto") = }')

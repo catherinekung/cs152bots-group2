@@ -222,22 +222,38 @@ class ModBot(discord.Client):
         mod_channel = self.mod_channels[message.guild.id]
         await mod_channel.send(f'Forwarded message:\n{message.author.name}: "{message.content}"')
         scores = self.eval_text(message.content)
-        await mod_channel.send(self.code_format(scores))
+        await mod_channel.send(self.code_format(scores, message))
 
     def eval_text(self, message):
         ''''
         TODO: Once you know how you want to evaluate messages in your channel, 
         insert your code here! This will primarily be used in Milestone 3. 
         '''
-        return message
 
-    def code_format(self, text):
+        all_scores = {}
+
+        # Automated flagging for community specified rules
+        rules_scores = self.user_rules.get_rules_scores(message)
+        if rules_scores.get("rules"):
+            all_scores['rules'] = rules_scores['rules']
+
+        return all_scores
+
+    def code_format(self, scores, message):
         ''''
-        TODO: Once you know how you want to show that a message has been 
-        evaluated, insert your code here for formatting the string to be 
-        shown in the mod channel. 
+        TODO: Once you know how you want to show that a message has been
+        evaluated, insert your code here for formatting the string to be
+        shown in the mod channel.
         '''
-        return "Evaluated: '" + text + "'"
+        '''
+        -1: further inspection by moderator required
+        1: automated report created, no action required by moderators
+        0: report was false, no need to do anything, nothing is sent to moderator channel
+        '''
+        if 'rules' in scores and len(scores['rules']) > 0:
+            phrases_found = ", ".join(scores['rules'])
+            return (f"The previous message was automatically flagged and deleted\n"
+                    f"This is due to containing the following phrase(s): {phrases_found}")
 
 
 client = ModBot()
