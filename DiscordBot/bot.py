@@ -33,7 +33,7 @@ with open(token_path) as f:
     discord_token = tokens['discord']
     virus_total_token = tokens['virus_total']
 
-def predetermine_action(report_reason):
+def predetermine_action(report_reason, user_client, user):
     actions = {"Ban User": False, "Remove Post": False, "Report User to Discord": False, "Place User on Probation": False}
     if "Blackmail" in report_reason:
         if "Explicit Content" in report_reason or "Threat to do Physical Harm" in report_reason or "Personal/Sensitive Information" in report_reason:
@@ -49,6 +49,10 @@ def predetermine_action(report_reason):
             actions["Report User to Discord"] = True
     elif "Suspicious Link" in report_reason:
         actions['Remove Post'] = True
+        if user_client.get_user_offenses(user) >= 2:
+            actions["Ban User"] = True
+        else:
+            actions["Place User on Probation"] = True
     elif "Imminent Danger" in report_reason:
         actions['Remove Post'] = True
         actions["Ban User"] = True
@@ -57,32 +61,37 @@ def predetermine_action(report_reason):
     return actions
 
 class ModeratorActionDropdown(Select):
-    def __init__(self, mod_channel, reported_message):
+    def __init__(self, mod_channel, reported_message, user_client):
         super().__init__(placeholder="What actions do you want to take?", min_values=1, max_values=4)
         self.mod_channel = mod_channel
         self.reported_message = reported_message
-        actions = predetermine_action(reported_message.get("report_reason"))
+        self.user_client = user_client
+        actions = predetermine_action(reported_message.get("report_reason"), self.user_client, self.reported_message.get("message").author.id)
         self.add_option(default=actions["Ban User"], label="Ban User", description="Ban the actor from the server", value="Actor has been banned")
         self.add_option(default=actions["Remove Post"], label="Remove Post", description="Remove the post from the channel", value="Post has been removed")
         self.add_option(default=actions["Report User to Discord"], label="Report User to Discord", description="Report the User to Discord", value="Actor has been reported to Discord")
         self.add_option(default=actions["Place User on Probation"], label="Place User on Probation", description="Place the actor on temporary probation", value="Actor has been placed on temporary probation")
 
     async def callback(self, interaction):
+        self.user_client.update_user_offenses(self.reported_message.get("message").author.id)
         if "Actor has been banned" in self.values:
             await self.reported_message.get("message").author.send("You have been banned from the Trust and Safety - Spring 2024 server.")
-        elif "Actor has been placed on temporary probation" in self.values[0]:
+        elif "Actor has been placed on temporary probation" in self.values:
             await self.reported_message.get("message").author.send("Your account has been put on temporary probabtion and will have limited access to features due to policy violations.")
         action_status = f'Actions taken: {", ".join(self.values)}. Thank you for moderating this report!'
         await self.mod_channel.send(action_status)
         await interaction.response.defer()
 
 class ConfirmButton(Button):
-    def __init__(self, mod_channel, reported_message):
+    def __init__(self, mod_channel, reported_message, user_client):
         super().__init__(label="Confirm Action(s)")
-        self.actions = predetermine_action(reported_message.get("report_reason"))
         self.mod_channel = mod_channel
         self.reported_message = reported_message
+        self.user_client = user_client
+        self.actions = predetermine_action(reported_message.get("report_reason"), self.user_client, self.reported_message.get("message").author.id)
+
     async def callback(self, interaction):
+        self.user_client.update_user_offenses(self.reported_message.get("message").author.id)
         action_str = {"Ban User": "Actor has been banned", "Remove Post": "Post has been removed", "Report User to Discord": "Actor has been reported to Discord", "Place User on Probation": "Actor has been placed on temporary probation"}
         if self.actions["Ban User"]:
             await self.reported_message.get("message").author.send(
@@ -96,10 +105,11 @@ class ConfirmButton(Button):
         await interaction.response.defer()
     
 class LegitimacyDropdown(Select):
-    def __init__(self, mod_channel, reported_message):
+    def __init__(self, mod_channel, reported_message, user_client):
         super().__init__(placeholder="Select one", min_values=1, max_values=1)
         self.mod_channel = mod_channel
         self.reported_message = reported_message
+        self.user_client = user_client
         self.add_option(label="Yes", description="The report reason is appropriate", value="legitimate")
         self.add_option(label="No, revision required", description="The report reason needs to be revised", value="update required")
         self.add_option(label="No, false report", description="The content was falsely reported", value="not legitimate")
@@ -122,8 +132,8 @@ class LegitimacyDropdown(Select):
                     await interaction.client.wait_for_authority_report_reply(self.mod_channel, interaction.user)
 
             view = View()
-            view.add_item(ModeratorActionDropdown(self.mod_channel, self.reported_message))
-            view.add_item(ConfirmButton(self.mod_channel, self.reported_message))
+            view.add_item(ModeratorActionDropdown(self.mod_channel, self.reported_message, self.user_client))
+            view.add_item(ConfirmButton(self.mod_channel, self.reported_message, self.user_client))
             await self.mod_channel.send("\n\nPlease select the action(s) you want to take. If you would like to proceed with the preselected, recommended actions, press 'Confirm Action(s)'. If not, please update the selection of appropriate actions.", view=view)
 
 
@@ -164,9 +174,9 @@ class ReportReasonDropdown(Select):
 
 
 
-def create_legitimacy_view(mod_channel, reported_message):
+def create_legitimacy_view(mod_channel, reported_message, user_client):
     view = View()
-    view.add_item(LegitimacyDropdown(mod_channel, reported_message))
+    view.add_item(LegitimacyDropdown(mod_channel, reported_message, user_client))
     return view
 
 
@@ -225,7 +235,7 @@ class ModBot(discord.Client):
                 values = [message.content]
             priority = min([priorities[v] for v in values])
             priority_colors = ["🔴", "🟠", "🟡", "🟢", "⚪️"]
-            await channel.send(f"* Report reason has been updated: {message.content}\n* Priority: P{priority} {priority_colors[priority]}")
+            await channel.send(f"* Report reason has been updated: {message.content}\n* Priority: P{priority} {priority_colors[priority-1]}")
             return message.content
         except asyncio.TimeoutError:
             await channel.send("You did not respond in time.")
@@ -275,10 +285,11 @@ class ModBot(discord.Client):
             for r in responses:
                 await message.channel.send(r.get("response"), view=r.get("view"))
                 if r.get("summary"):
-                    self.reported_message = r.get("reported_message")
+                    self.reported_message = {"message": r.get("reported_message"), "priority": r.get("priority"), "report_reason": r.get("reported_reason")}
                     mod_channel = self.mod_channels[r.get("reported_message").guild.id]
-                    view = create_legitimacy_view(mod_channel, self.reported_message)
-                    await mod_channel.send(r.get("summary"), view=view)
+                    view = create_legitimacy_view(mod_channel, self.reported_message, self.user_rules)
+                    offenses = self.user_rules.get_user_offenses(r.get("reported_message").author.id)
+                    await mod_channel.send(r.get("summary") + f"\n* {r.get('reported_message').author.name} has had {offenses} reports made against them\n\nIs the report reason appropriate for the reported content?", view=view)
 
             # If the report is complete or cancelled, remove it from our map
             if self.reports[author_id].report_complete():
@@ -349,7 +360,7 @@ class ModBot(discord.Client):
         
         if 'rules' in scores and len(scores['rules']) > 0:
             phrases_found = ", ".join(scores['rules'])
-            return (f"The previous message was automatically flagged and deleted\n"
+            return (f"The following message was automatically flagged and deleted: : \n```{message.author.name}: {message.content}```\n"
                     f"This is due to containing the following phrase(s): {phrases_found}")
 
 

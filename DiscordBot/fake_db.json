@@ -1,11 +1,21 @@
 {
-  "standard": [
-    "crypto"
-  ],
-  "1065127822441586820": [
-    "cash scheme",
-    "free cash",
-    "cash now",
-    "money"
-  ]
+  "standard": {
+    "rules": [
+      "crypto"
+    ]
+  },
+  "1065127822441586820": {
+    "rules": [
+      "cash scheme",
+      "free cash",
+      "cash now",
+      "money"
+    ]
+  },
+  "687883093423685785": {
+    "rules": [
+      "give me money"
+    ],
+    "offenses": 2
+  }
 }

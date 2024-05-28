@@ -46,11 +46,11 @@ class UserRules:
 
     def _get_flags(self, for_user: bool = False) -> list:
         if for_user:
-            return list(set(self._db.get(self.user, [])))  # get rid of duplicates
+            return list(set(self._db.get(self.user, {}).get("rules", [])))  # get rid of duplicates
 
         flags = []
-        for user_flags in self._db.values():
-            flags.extend(user_flags)
+        for user in self._db.values():
+            flags.extend(user["rules"])
 
         return list(set(flags))  # get rid of duplicates
 
@@ -106,7 +106,7 @@ class UserRules:
         )
 
         async def callback(interaction):
-            self._db[self.user].remove(dropdown.values[0])
+            self._db[self.user]["rules"].remove(dropdown.values[0])
             self._write_db()
             self.user_flags = self._get_flags(for_user=True)
             self.flags = self._get_flags(for_user=False)
@@ -133,7 +133,7 @@ class UserRules:
 
         async def callback(interaction):
             # for simplicity, just delete the rule and add a new one
-            self._db[self.user].remove(dropdown.values[0])
+            self._db[self.user]["rules"].remove(dropdown.values[0])
             self.user_flags = self._get_flags(for_user=True)
             self.flags = self._get_flags(for_user=False)
 
@@ -165,9 +165,12 @@ class UserRules:
                 return [{"response": f"Rule for '{message.content}' is already in rules."}]
             self.user_flags.append(message.content)
             if self._db.get(self.user):
-                self._db[self.user].append(message.content)
+                if self._db[self.user].get("rules"):
+                    self._db[self.user]["rules"].append(message.content)
+                else:
+                    self._db[self.user]["rules"] = [message.content]
             else:
-                self._db[self.user] = [message.content]
+                self._db[self.user] = {"rules": [message.content]}
             self._write_db()
             if self.state == State.RULE_CREATE:
                 response = f"Rule for '{message.content}' created."
@@ -194,6 +197,26 @@ class UserRules:
         if matches:
             return {"rules": matches}
         return {}
+
+    def get_user_offenses(self, user):
+        user = str(user)
+        if user in self._db:
+            if self._db[user].get("offenses"):
+                return self._db[user].get("offenses")
+            return 0
+        return 0
+
+    def update_user_offenses(self, user):
+        user = str(user)
+        if user in self._db:
+            if self._db[user].get("offenses"):
+                self._db[user]["offenses"] += 1
+            else:
+                self._db[user]["offenses"] = 1
+        else:
+            self._db[user] = {"offenses": 1}
+        self._write_db()
+
 
 
 if __name__ == "__main__":

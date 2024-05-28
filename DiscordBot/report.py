@@ -148,7 +148,7 @@ class Report:
             priority = min(priorities)
         color = priority_colors[priority-1] if priority != 'TBD' else priority_colors[4]
         priority_str = "P" + str(priority) if priority != 'TBD' else priority
-        return f"A report was filed on {date} by {message.author.name} on the following message: \n```{self.message.author.name}: {self.message.content}```\n* Report reason: {self.report_reason}{reason_sub_category}\n* Priority: {priority_str} {color}{additional_information}\n\nIs the report reason appropriate for the reported content?", priority, f"{self.report_reason}{reason_sub_category}"
+        return f"A report was filed on {date} by {message.author.name} on the following message: \n```{self.message.author.name}: {self.message.content}```\n* Report reason: {self.report_reason}{reason_sub_category}\n* Priority: {priority_str} {color}{additional_information}", priority, f"{self.report_reason}{reason_sub_category}"
 
     async def handle_message(self, message):
         '''
