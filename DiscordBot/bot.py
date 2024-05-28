@@ -315,8 +315,7 @@ class ModBot(discord.Client):
                 await message.channel.send(r.get("response"), view=r.get("view"))
                 if r.get("summary"):
                     self.reported_message = {"message": r.get("reported_message"), "priority": r.get("priority"), "report_reason": r.get("reported_reason"), "automated": False}
-                    # mod_channel = self.mod_channels[r.get("reported_message").guild.id]
-                    mod_channel = message.channel
+                    mod_channel = self.mod_channels[r.get("reported_message").guild.id]
                     view = create_legitimacy_view(mod_channel, self.reported_message, self.user_rules)
                     offenses = self.user_rules.get_user_offenses(r.get("reported_message").author.id)
                     await mod_channel.send(r.get("summary") + f"\n* {r.get('reported_message').author.name} has had {offenses} reports made against them\n\nIs the report reason appropriate for the reported content?", view=view)
