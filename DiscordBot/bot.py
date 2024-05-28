@@ -129,12 +129,38 @@ class LegitimacyDropdown(Select):
                 if "Imminent Danger" in self.reported_message.get("report_reason") or "Threat to do Physical Harm" in self.reported_message.get("report_reason") or "Assets Sent" in self.reported_message.get("report_reason"):
                     prompt_message = "\n\nPlease type a message that can be sent to the authorities regarding this case."
                     await self.mod_channel.send(prompt_message)
-                    await interaction.client.wait_for_authority_report_reply(self.mod_channel, interaction.user)
+                    await interaction.client.wait_for_user_reply(self.mod_channel, interaction.user, f"Thank you for your response, {interaction.user}. A report has been filed with the authorities. Please wait for further instructions.")
+                elif "Suspicious Link" in self.reported_message.get("report_reason"):
+                    scores = interaction.client.eval_text(self.reported_message.get("message").content)
+                    await interaction.client.handle_malicious_link(self.reported_message.get("message").content, scores, self.mod_channel, False)
+            if not "Suspicious Link" in self.reported_message.get("report_reason"):
+                view = View()
+                view.add_item(ModeratorActionDropdown(self.mod_channel, self.reported_message, self.user_client))
+                view.add_item(ConfirmButton(self.mod_channel, self.reported_message, self.user_client))
+                await self.mod_channel.send("\n\nPlease select the action(s) you want to take. If you would like to proceed with the preselected, recommended actions, press 'Confirm Action(s)'. If not, please update the selection of appropriate actions.", view=view)
 
-            view = View()
-            view.add_item(ModeratorActionDropdown(self.mod_channel, self.reported_message, self.user_client))
-            view.add_item(ConfirmButton(self.mod_channel, self.reported_message, self.user_client))
-            await self.mod_channel.send("\n\nPlease select the action(s) you want to take. If you would like to proceed with the preselected, recommended actions, press 'Confirm Action(s)'. If not, please update the selection of appropriate actions.", view=view)
+class MaliciousLinkDropdown(Select):
+    def __init__(self, mod_channel, reported_message, user_client):
+        super().__init__(placeholder="Is the link malicious?", min_values=1, max_values=1)
+        self.mod_channel = mod_channel
+        self.reported_message = reported_message
+        self.user_client = user_client
+        self.add_option(label="Yes", description="The link is malicious", value="yes")
+        self.add_option(label="No", description="The link is not malicious", value="no")
+
+    async def callback(self, interaction):
+        await interaction.response.defer()
+        action_message = "\n\nPlease select the action(s) you want to take. If you would like to proceed with the preselected, recommended actions, press 'Confirm Action(s)'. If not, please update the selection of appropriate actions."
+        view = View()
+        view.add_item(ModeratorActionDropdown(self.mod_channel, self.reported_message, self.user_client))
+        view.add_item(ConfirmButton(self.mod_channel, self.reported_message, self.user_client))
+        if self.values[0] == 'yes':
+            await self.mod_channel.send(
+                "Link is marked as malicious and has been added to our internal blacklist." + action_message,
+                view=view)
+        else:
+            await self.mod_channel.send(
+                "Link was deemed not malicious. No further action is required. Thank you for moderating this report!")
 
 
 class ReportReasonDropdown(Select):
@@ -164,8 +190,9 @@ class ReportReasonDropdown(Select):
                 "report_reason") or "Assets Sent" in self.reported_message.get("report_reason"):
             prompt_message = "Please type a message that can be sent to the authorities regarding this case."
             await self.mod_channel.send(prompt_message)
-            await interaction.client.wait_for_authority_report_reply(self.mod_channel, interaction.user)
-        
+            await interaction.client.wait_for_user_reply(self.mod_channel, interaction.user,
+                                                         f"Thank you for your response, {interaction.user}. A report has been filed with the authorities. Please wait for further instructions.")
+
         action_view = View()
         action_view.add_item(ModeratorActionDropdown(self.mod_channel, self.reported_message))
         await self.mod_channel.send(
@@ -209,14 +236,16 @@ class ModBot(discord.Client):
                 if channel.name == f'group-{self.group_num}-mod':
                     self.mod_channels[guild.id] = channel
                     
-    async def wait_for_authority_report_reply(self, channel, user):
+    async def wait_for_user_reply(self, channel, user, reply=None):
         def check(m):
             return m.author == user and m.channel == channel
 
         try:
             message = await self.wait_for('message', check=check, timeout=300)
-            await channel.send(
-                f"Thank you for your response, {user.name}. A report has been filed with the authorities. Please wait for further instructions.")
+            if reply:
+                await channel.send(reply)
+            else:
+                return message.content
         except asyncio.TimeoutError:
             await channel.send("You did not respond in time.")
 
@@ -285,8 +314,9 @@ class ModBot(discord.Client):
             for r in responses:
                 await message.channel.send(r.get("response"), view=r.get("view"))
                 if r.get("summary"):
-                    self.reported_message = {"message": r.get("reported_message"), "priority": r.get("priority"), "report_reason": r.get("reported_reason")}
-                    mod_channel = self.mod_channels[r.get("reported_message").guild.id]
+                    self.reported_message = {"message": r.get("reported_message"), "priority": r.get("priority"), "report_reason": r.get("reported_reason"), "automated": False}
+                    # mod_channel = self.mod_channels[r.get("reported_message").guild.id]
+                    mod_channel = message.channel
                     view = create_legitimacy_view(mod_channel, self.reported_message, self.user_rules)
                     offenses = self.user_rules.get_user_offenses(r.get("reported_message").author.id)
                     await mod_channel.send(r.get("summary") + f"\n* {r.get('reported_message').author.name} has had {offenses} reports made against them\n\nIs the report reason appropriate for the reported content?", view=view)
@@ -301,6 +331,21 @@ class ModBot(discord.Client):
             for r in responses:
                 await message.channel.send(r.get("response"), view=r.get("view"))
 
+    async def handle_malicious_link(self, message, scores, mod_channel, automated=True):
+        if -1 not in scores['suspicious_link'].values():
+            action_view = View()
+            action_view.add_item(ModeratorActionDropdown(mod_channel, self.reported_message, self.user_rules))
+            action_view.add_item(ConfirmButton(mod_channel, self.reported_message, self.user_rules))
+            action_message = "\n\nPlease select the action(s) you want to take. If you would like to proceed with the preselected, recommended actions, press 'Confirm Action(s)'. If not, please update the selection of appropriate actions."
+
+            await mod_channel.send(self.code_format(scores, message, automated) + action_message, view=action_view)
+        else:
+            malicious_view = View()
+            malicious_view.add_item(MaliciousLinkDropdown(mod_channel, self.reported_message, self.user_rules))
+            await mod_channel.send(
+                self.code_format(scores, message, automated) + "\nPlease review the reported link. Is it malicious?",
+                view=malicious_view)
+
     async def handle_channel_message(self, message):
         # Only handle messages sent in the "group-#" channel
         if not message.channel.name == f'group-{self.group_num}':
@@ -310,14 +355,18 @@ class ModBot(discord.Client):
         mod_channel = self.mod_channels[message.guild.id]
         scores = self.eval_text(message.content)
         if scores:
-            await mod_channel.send(self.code_format(scores, message))
+            if 'suspicious_link' in scores:
+                self.reported_message = {"message": message, "priority": 4,
+                                         "report_reason": "Suspicious Link", "automated": True}
+                await self.handle_malicious_link(message, scores, mod_channel)
+            else:
+                await mod_channel.send(self.code_format(scores, message))
 
     def eval_text(self, message):
         ''''
         TODO: Once you know how you want to evaluate messages in your channel, 
         insert your code here! This will primarily be used in Milestone 3. 
         '''
-
         all_scores = {}
         # Automated flagging for suspicious links
         scores = identify_suspicious_links(message, virus_total_token)
@@ -330,9 +379,11 @@ class ModBot(discord.Client):
         if rules_scores.get("rules"):
             all_scores['rules'] = rules_scores['rules']
 
-        return all_scores
+        if len(all_scores) > 0:
+            return all_scores
+        return None
 
-    def code_format(self, scores, message):
+    def code_format(self, scores, message, automated=True):
         ''''
         TODO: Once you know how you want to show that a message has been
         evaluated, insert your code here for formatting the string to be
@@ -348,21 +399,21 @@ class ModBot(discord.Client):
             url_scores = scores['suspicious_link']
             urls_requiring_manual_review = [url for url in url_scores if url_scores[url] == -1]
             urls_auto_flagged = [url for url in url_scores if url_scores[url] == 1]
-            message = f"An automated report was filed on {date} on the following message: \n```{message.author.name}: {message.content}```\n* Report reason: Suspicious Link"
+            return_message = ""
+            if automated:
+                return_message = f"An automated report was filed on {date} on the following message: \n```{message.author.name}: {message.content}```\n* Report reason: Suspicious Link"
             if len(urls_auto_flagged) > 0:
-                message += f"\n* Additional Information: The following links were identified as suspicious = {','.join(urls_auto_flagged)}."
+                return_message += f"\n* The following links were verified as malicious = {','.join(urls_auto_flagged)}."
 
             if len(urls_requiring_manual_review) > 0:
-                message += f"\nThe following links require manual review={','.join(urls_requiring_manual_review)}."
-            else:
-                message += "\nNo further action is required at this time."
-            return message
+                return_message += f"\n* The following links require manual review = {','.join(urls_requiring_manual_review)}."
+            return return_message
         
         if 'rules' in scores and len(scores['rules']) > 0:
             phrases_found = ", ".join(scores['rules'])
             return (f"The following message was automatically flagged and deleted: : \n```{message.author.name}: {message.content}```\n"
                     f"This is due to containing the following phrase(s): {phrases_found}")
-
+        return ""
 
 client = ModBot()
 client.run(discord_token)

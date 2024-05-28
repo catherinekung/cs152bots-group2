@@ -50,7 +50,7 @@ def identify_suspicious_links(message, virus_total_token):
                     stats = check_with_virus_total(u, virus_total_token)
                     total = sum(stats.values())
                     if total != 0:
-                        if stats.get("malicious") >= 5:
+                        if stats.get("malicious") >= 2:
                             internal_blacklist.append(u)
                             actions_per_url[url] = 1
                             break
