@@ -29,14 +29,28 @@ class Report:
         self.report_reason = None
         self.additional_info = ""
         self.selections = []
+        self.priority = {"Assets Sent": 2, "Personal Information Provided": 2, "Suspicion of Impersonation": 3,
+                         "Explicit Content": 3, "Personal/Sensitive Information": 2, "Threat to do Physical Harm": 1,
+                         "Suspicious Link": 4, "Imminent Danger": 1, "Other": "TBD"}
 
     def get_report_view(self):
         options = [
-            SelectOption(emoji="📫", label='Blackmail', value='Blackmail', description="You are being threatened to send cryptocurrency"),
-            SelectOption(emoji="💰", label='Investment Scam', value='Investment Scam', description="You sent cryptocurrency to a fraudulent individual"),
-            SelectOption(emoji="🔗", label='Suspicious Link', value='Suspicious Link', description="You received a link that may lead to a disreputable site"),
-            SelectOption(emoji="⚠️", label="Imminent Danger", value="Imminent Danger", description="You are in immediate danger"),
-            SelectOption(emoji="❓", label="Other", value="Other", description="You have a different reason for reporting")
+            SelectOption(emoji="📫", label='Blackmail', value='Blackmail',
+                         description="You are being threatened to send cryptocurrency"),
+            SelectOption(emoji="💰", label='Investment Scam', value='Investment Scam',
+                         description="You sent cryptocurrency to a fraudulent individual"),
+            SelectOption(emoji="🔗", label='Suspicious Link', value='Suspicious Link',
+                         description="You received a link that may lead to a disreputable site"),
+            SelectOption(emoji="⚠️", label="Imminent Danger", value="Imminent Danger",
+                         description="You are in immediate danger"),
+            SelectOption(emoji="🚫", label="Harassment", value="Harassment",
+                         description="You experienced behavior causing you distress/harm"),
+            SelectOption(emoji="🤬", label="Offensive Content", value="Offensive Content",
+                         description="You received hateful, abusive or sexually explicit content"),
+            SelectOption(emoji="🗑", label="Spam", value="Spam",
+                         description="You received unwanted content"),
+            SelectOption(emoji="❓", label="Other", value="Other",
+                         description="You have a different reason for reporting")
         ]
 
         dropdown = Select(
@@ -57,6 +71,9 @@ class Report:
             elif dropdown.values[0] == "Imminent Danger":
                 self.state = State.AWAITING_ADDITIONAL_INFO
                 await interaction.response.send_message(f"**If you are in a life-threatening situation, please contact your local authorities.**\n\n[Optional] Please provide additional details that might help our investigation. {Report.NO_ADDITIONAL_INFO}")
+            elif dropdown.values[0] in ['Harassment', "Offensive Content", "Spam"]:
+                self.state = State.AWAITING_BLOCK_CONSENT
+                await interaction.response.send_message(Report.BLOCK_USER_MESSAGE)
             else:
                 self.state = State.AWAITING_ADDITIONAL_INFO
                 await interaction.response.send_message("Please provide additional details for reporting.")
@@ -124,11 +141,18 @@ class Report:
         additional_information = f"\n* Additional Information: {self.additional_info}" if len(self.additional_info) > 0 else ""
         reason_sub_category = f" - {', '.join(self.selections)}" if len(self.selections) > 0 else ""
         date = datetime.today().strftime("%B %d, %Y")
-        return f"A report was filed on {date} by {message.author.name} on the following message: \n```{self.message.author.name}: {self.message.content}```\n* Report reason: {self.report_reason}{reason_sub_category}{additional_information} "
+        priority = self.priority.get(self.report_reason)
+        priority_colors = ["🔴", "🟠", "🟡", "🟢", "⚪️"]
+        if not priority:
+            priorities = [self.priority[sel] for sel in self.selections]
+            priority = min(priorities)
+        color = priority_colors[priority-1] if priority != 'TBD' else priority_colors[4]
+        priority_str = "P" + str(priority) if priority != 'TBD' else priority
+        return f"A report was filed on {date} by {message.author.name} on the following message: \n```{self.message.author.name}: {self.message.content}```\n* Report reason: {self.report_reason}{reason_sub_category}\n* Priority: {priority_str} {color}{additional_information}", priority, f"{self.report_reason}{reason_sub_category}"
 
     async def handle_message(self, message):
         '''
-        This function makes up the meat of the user-side reporting flow. It defines how we transition between states and what 
+        This function makes up the meat of the user-side reporting flow. It defines how we transition between states and what
         prompts to offer at each of those states. You're welcome to change anything you want; this skeleton is just here to
         get you started and give you a model for working with Discord. 
         '''
@@ -177,7 +201,7 @@ class Report:
                 return [{"response": f"[Optional] Please provide additional details. {Report.NO_ADDITIONAL_INFO}"}]
 
         if self.state == State.AWAITING_BLOCK_CONSENT:
-            report_summary = self.construct_report_summary(message)
+            report_summary, priority, report_reason = self.construct_report_summary(message)
             if message.content == 'yes':
                 self.state = State.REPORT_COMPLETE
                 response = f"{self.message.author.name} is no longer able to directly message you or view your profile."
@@ -186,7 +210,7 @@ class Report:
                 response = f"{self.message.author.name} will still be able to directly message you and view your profile."
             self.additional_info = ""
             return [{
-                        "response": response, "summary": report_summary, "reported_message": self.message}]
+                        "response": response, "summary": report_summary, "priority": priority, "reported_reason": report_reason, "reported_message": self.message}]
 
         if self.state == State.AWAITING_ADDITIONAL_INFO:
             self.additional_info += message.content if message.content != 'N/A' else ""
