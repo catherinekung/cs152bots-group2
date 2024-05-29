@@ -9,6 +9,7 @@ import re
 import requests
 
 from user_rules import UserRules
+from scam_classifier import ScamClassier
 from report import Report
 from discord.components import SelectOption
 from discord.ui import Select, View, Button
@@ -71,6 +72,7 @@ class ModeratorActionDropdown(Select):
         self.add_option(default=actions["Remove Post"], label="Remove Post", description="Remove the post from the channel", value="Post has been removed")
         self.add_option(default=actions["Report User to Discord"], label="Report User to Discord", description="Report the User to Discord", value="Actor has been reported to Discord")
         self.add_option(default=actions["Place User on Probation"], label="Place User on Probation", description="Place the actor on temporary probation", value="Actor has been placed on temporary probation")
+        self.add_option(label="No action required", description="Report was false or no action needed", value="No action taken")
 
     async def callback(self, interaction):
         self.user_client.update_user_offenses(self.reported_message.get("message").author.id)
@@ -78,7 +80,10 @@ class ModeratorActionDropdown(Select):
             await self.reported_message.get("message").author.send("You have been banned from the Trust and Safety - Spring 2024 server.")
         elif "Actor has been placed on temporary probation" in self.values:
             await self.reported_message.get("message").author.send("Your account has been put on temporary probabtion and will have limited access to features due to policy violations.")
-        action_status = f'Actions taken: {", ".join(self.values)}. Thank you for moderating this report!'
+        if self.values[0] == "No action required":
+            action_status = "No actions were taken. Thank you for moderating this report!"
+        else:
+            action_status = f'Actions taken: {", ".join(self.values)}. Thank you for moderating this report!'
         await self.mod_channel.send(action_status)
         await interaction.response.defer()
 
@@ -217,6 +222,7 @@ class ModBot(discord.Client):
         self.reports = {}  # Map from user IDs to the state of their report
         self.user_rules = UserRules(self)
         self.reported_message = None
+        self.scam_classifier = ScamClassier()
 
     async def on_ready(self):
         print(f'{self.user.name} has connected to Discord! It is these guilds:')
@@ -358,8 +364,22 @@ class ModBot(discord.Client):
                 self.reported_message = {"message": message, "priority": 4,
                                          "report_reason": "Suspicious Link", "automated": True}
                 await self.handle_malicious_link(message, scores, mod_channel)
+                await message.channel.send(
+                    "🚨 The above content has been removed as it contains a suspicious link. If you believe this to be in error, please __submit your feedback__. 🚨")
+
+            elif 'scam' in scores and scores['scam'] == 1:
+                self.reported_message = {"message": message, "priority": 3,
+                                         "report_reason": "Suspected Cryptocurrency Scam", "automated": True}
+                action_view = View()
+                action_view.add_item(ModeratorActionDropdown(mod_channel, self.reported_message, self.user_rules))
+                await mod_channel.send(self.code_format(scores, message), view=action_view)
+                await message.channel.send(
+                    "🚨 The above content has been removed as it violates our policies on cryptocurrency. If you believe this to be in error, please __submit your feedback__. 🚨")
             else:
                 await mod_channel.send(self.code_format(scores, message))
+                await message.channel.send(
+                    "🚨 The above content has been removed as it violates our community guidelines. If you believe this to be in error, please __submit your feedback__. 🚨")
+
 
     def eval_text(self, message):
         ''''
@@ -377,6 +397,10 @@ class ModBot(discord.Client):
         rules_scores = self.user_rules.get_rules_scores(message)
         if rules_scores.get("rules"):
             all_scores['rules'] = rules_scores['rules']
+
+        # Automated flagging for potential scams
+        is_scam = self.scam_classifier.predict_scam(message)
+        all_scores['scam'] = is_scam
 
         if len(all_scores) > 0:
             return all_scores
@@ -400,7 +424,7 @@ class ModBot(discord.Client):
             urls_auto_flagged = [url for url in url_scores if url_scores[url] == 1]
             return_message = ""
             if automated:
-                return_message = f"An automated report was filed on {date} on the following message: \n```{message.author.name}: {message.content}```\n* Report reason: Suspicious Link"
+                return_message = f"An automated report was filed on {date} on the following message: \n```{message.author.name}: {message.content}```\n* Report reason: Suspicious Link \n* Priority: 🟢"
             if len(urls_auto_flagged) > 0:
                 return_message += f"\n* The following links were verified as malicious = {','.join(urls_auto_flagged)}."
 
@@ -410,8 +434,12 @@ class ModBot(discord.Client):
         
         if 'rules' in scores and len(scores['rules']) > 0:
             phrases_found = ", ".join(scores['rules'])
-            return (f"The following message was automatically flagged and deleted: : \n```{message.author.name}: {message.content}```\n"
+            return (f"The following message was automatically flagged and deleted: \n```{message.author.name}: {message.content}```\n"
                     f"This is due to containing the following phrase(s): {phrases_found}")
+
+        if "scam" in scores and scores['scam'] == 1:
+            return_message = f"An automated report was filed on {date} on the following message: \n```{message.author.name}: {message.content}```\n* Report reason: Suspected Cryptocurrency Scam \n* Priority: 🟡\n\nPlease determine if this a scam and determine the appropriate actions, if required."
+            return return_message
         return ""
 
 client = ModBot()
