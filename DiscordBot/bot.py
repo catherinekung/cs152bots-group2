@@ -293,7 +293,7 @@ class ModBot(discord.Client):
         # Handle a help message
         if message.content == Report.HELP_KEYWORD:
             reply = "Use the `report` command to begin the reporting process.\n"
-            reply += "User the `rules` command to begin the rule creation process.\n"
+            reply += "Use the `rules` command to begin the rule creation process.\n"
             reply += "Use the `cancel` command to cancel the report process.\n"
             await message.channel.send(reply)
             return
