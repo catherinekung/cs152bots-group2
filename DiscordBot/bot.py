@@ -50,7 +50,7 @@ def predetermine_action(report_reason, user_client, user):
             actions["Report User to Discord"] = True
     elif "Suspicious Link" in report_reason:
         actions['Remove Post'] = True
-        if user_client.get_user_offenses(user) >= 2:
+        if user_client.get_user_offenses(user) >= 3:
             actions["Ban User"] = True
         else:
             actions["Place User on Probation"] = True
